@@ -25,16 +25,20 @@ def predict():
         return jsonify({"intent": "unknown", "answer": "I didn’t hear anything. Can you say that again?"})
 
     try:
-        prediction = model.predict([text])[0]
+        # Predict probabilities
+        probabilities = model.predict_proba([text])[0]
+        max_index = probabilities.argmax()
+        max_confidence = probabilities[max_index]
+        prediction = model.classes_[max_index]
 
-        # Use fallback message if intent is not recognized
-        if prediction not in intent_to_answer:
+        # Use threshold to reject low-confidence predictions
+        if max_confidence < 0.6:  # adjust threshold if needed
             return jsonify({
                 "intent": "unknown",
                 "answer": "I don't understand. Can you try again?"
             })
 
-        answer = intent_to_answer[prediction]
+        answer = intent_to_answer.get(prediction, "I don't understand. Can you try again?")
         return jsonify({"intent": prediction, "answer": answer})
 
     except Exception as e:
