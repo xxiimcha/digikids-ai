@@ -6,7 +6,10 @@ app = Flask(__name__)
 # Load the trained intent classification model
 model = joblib.load("intent_model.pkl")
 
-# Define a dictionary that maps intents to answers
+# Confidence threshold for accepting a prediction
+CONFIDENCE_THRESHOLD = 0.6
+
+# Mapping from intent labels to response messages
 intent_to_answer = {
     "math_2_plus_2": "2 plus 2 is 4!",
     "science_sky_blue": "The sky looks blue because of how sunlight scatters in the atmosphere.",
@@ -17,34 +20,43 @@ intent_to_answer = {
 }
 
 @app.route("/predict_intent", methods=["POST"])
-def predict():
+def predict_intent():
     data = request.get_json()
-    text = data.get("text", "").strip()
 
-    if not text:
-        return jsonify({"intent": "unknown", "answer": "I didn’t hear anything. Can you say that again?"})
+    if not data or not data.get("text"):
+        return jsonify({
+            "intent": "unknown",
+            "answer": "I didn’t hear anything. Can you say that again?"
+        })
+
+    user_input = data["text"].strip()
 
     try:
-        # Predict probabilities
-        probabilities = model.predict_proba([text])[0]
+        # Get prediction probabilities
+        probabilities = model.predict_proba([user_input])[0]
         max_index = probabilities.argmax()
         max_confidence = probabilities[max_index]
-        prediction = model.classes_[max_index]
+        predicted_intent = model.classes_[max_index]
 
-        # Use threshold to reject low-confidence predictions
-        if max_confidence < 0.6:  # adjust threshold if needed
+        # Check if confidence is too low
+        if max_confidence < CONFIDENCE_THRESHOLD:
             return jsonify({
                 "intent": "unknown",
                 "answer": "I don't understand. Can you try again?"
             })
 
-        answer = intent_to_answer.get(prediction, "I don't understand. Can you try again?")
-        return jsonify({"intent": prediction, "answer": answer})
+        # Fetch corresponding answer
+        answer = intent_to_answer.get(predicted_intent, "I don't understand. Can you try again?")
+        return jsonify({
+            "intent": predicted_intent,
+            "answer": answer
+        })
 
     except Exception as e:
         return jsonify({
             "intent": "error",
-            "answer": "Oops! Something went wrong. Please try again."
+            "answer": "Oops! Something went wrong. Please try again.",
+            "error": str(e)  # Optional: remove in production
         }), 500
 
 if __name__ == "__main__":
