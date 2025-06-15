@@ -22,16 +22,26 @@ def predict():
     text = data.get("text", "").strip()
 
     if not text:
-        return jsonify({"error": "No text provided"}), 400
+        return jsonify({"intent": "unknown", "answer": "I didn’t hear anything. Can you say that again?"})
 
     try:
-        # Predict the intent
         prediction = model.predict([text])[0]
-        answer = intent_to_answer.get(prediction, "Hmm, I don't know the answer to that yet.")
+
+        # Use fallback message if intent is not recognized
+        if prediction not in intent_to_answer:
+            return jsonify({
+                "intent": "unknown",
+                "answer": "I don't understand. Can you try again?"
+            })
+
+        answer = intent_to_answer[prediction]
         return jsonify({"intent": prediction, "answer": answer})
 
     except Exception as e:
-        return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
+        return jsonify({
+            "intent": "error",
+            "answer": "Oops! Something went wrong. Please try again."
+        }), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
