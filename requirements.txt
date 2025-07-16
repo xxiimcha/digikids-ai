@@ -1,5 +1,5 @@
 flask
 scikit-learn
 joblib
-whisper
+git+https://github.com/openai/whisper.git
 pandas
