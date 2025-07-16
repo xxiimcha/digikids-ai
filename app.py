@@ -3,8 +3,9 @@ import whisper
 import joblib
 import os
 import uuid
-import subprocess
 from datetime import datetime
+from werkzeug.utils import secure_filename
+from pydub import AudioSegment
 import pandas as pd
 from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -12,15 +13,14 @@ from sklearn.linear_model import LogisticRegression
 
 app = Flask(__name__)
 
-# Load Whisper model
-whisper_model = whisper.load_model("base")
+# === Use smaller Whisper model to stay under 512MB ===
+whisper_model = whisper.load_model("tiny")
 
-# Train model from dataset
+# === Train pronunciation model from CSV once ===
 def train_model_from_csv(csv_path: str):
     df = pd.read_csv(csv_path)
     X = df["input"]
     y = df["label"]
-    
     pipeline = Pipeline([
         ('tfidf', TfidfVectorizer()),
         ('clf', LogisticRegression(max_iter=200))
@@ -28,15 +28,7 @@ def train_model_from_csv(csv_path: str):
     pipeline.fit(X, y)
     return pipeline
 
-# Train pronunciation model once at startup
 pronunciation_model = train_model_from_csv("pronunciation_dataset.csv")
-
-# Convert to WAV using ffmpeg
-def convert_to_wav(input_path, output_path):
-    subprocess.run([
-        "ffmpeg", "-y", "-i", input_path,
-        "-ar", "16000", "-ac", "1", "-f", "wav", output_path
-    ], check=True)
 
 @app.route('/api/pronunciation-feedback', methods=['POST'])
 def pronunciation_feedback():
@@ -56,7 +48,8 @@ def pronunciation_feedback():
 
     try:
         audio.save(raw_path)
-        convert_to_wav(raw_path, wav_path)
+        audio_segment = AudioSegment.from_file(raw_path)
+        audio_segment.export(wav_path, format="wav")
     except Exception as e:
         return jsonify({"error": f"Audio conversion failed: {str(e)}"}), 500
     finally:
@@ -66,8 +59,7 @@ def pronunciation_feedback():
     try:
         result = whisper_model.transcribe(wav_path)
         spoken_word = result['text'].strip().lower()
-
-        simulated_phoneme = spoken_word  # basic assumption for scoring
+        simulated_phoneme = spoken_word
 
         prediction = pronunciation_model.predict([simulated_phoneme])[0]
         proba = pronunciation_model.predict_proba([simulated_phoneme])[0].max()
@@ -93,5 +85,7 @@ def pronunciation_feedback():
         if os.path.exists(wav_path):
             os.remove(wav_path)
 
+# === IMPORTANT: Bind to $PORT and 0.0.0.0 for Render ===
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
