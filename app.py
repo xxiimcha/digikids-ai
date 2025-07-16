@@ -5,7 +5,6 @@ import os
 import uuid
 from datetime import datetime
 from werkzeug.utils import secure_filename
-from pydub import AudioSegment
 import pandas as pd
 from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
