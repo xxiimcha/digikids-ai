@@ -3,9 +3,8 @@ import whisper
 import joblib
 import os
 import uuid
+import subprocess
 from datetime import datetime
-from werkzeug.utils import secure_filename
-from pydub import AudioSegment
 import pandas as pd
 from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -13,10 +12,10 @@ from sklearn.linear_model import LogisticRegression
 
 app = Flask(__name__)
 
-# === Load Whisper model ===
+# Load Whisper model
 whisper_model = whisper.load_model("base")
 
-# === Train pronunciation classifier from CSV ===
+# Train model from dataset
 def train_model_from_csv(csv_path: str):
     df = pd.read_csv(csv_path)
     X = df["input"]
@@ -29,8 +28,15 @@ def train_model_from_csv(csv_path: str):
     pipeline.fit(X, y)
     return pipeline
 
-# Train the model once at app start
+# Train pronunciation model once at startup
 pronunciation_model = train_model_from_csv("pronunciation_dataset.csv")
+
+# Convert to WAV using ffmpeg
+def convert_to_wav(input_path, output_path):
+    subprocess.run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-ar", "16000", "-ac", "1", "-f", "wav", output_path
+    ], check=True)
 
 @app.route('/api/pronunciation-feedback', methods=['POST'])
 def pronunciation_feedback():
@@ -50,8 +56,7 @@ def pronunciation_feedback():
 
     try:
         audio.save(raw_path)
-        audio_segment = AudioSegment.from_file(raw_path)
-        audio_segment.export(wav_path, format="wav")
+        convert_to_wav(raw_path, wav_path)
     except Exception as e:
         return jsonify({"error": f"Audio conversion failed: {str(e)}"}), 500
     finally:
@@ -62,9 +67,7 @@ def pronunciation_feedback():
         result = whisper_model.transcribe(wav_path)
         spoken_word = result['text'].strip().lower()
 
-        # Instead of phonemizer, simulate phoneme with word itself or define a manual phoneme map
-        # Here we assume phoneme = spoken_word directly or map manually
-        simulated_phoneme = spoken_word  # Or use a lookup if available
+        simulated_phoneme = spoken_word  # basic assumption for scoring
 
         prediction = pronunciation_model.predict([simulated_phoneme])[0]
         proba = pronunciation_model.predict_proba([simulated_phoneme])[0].max()

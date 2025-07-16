@@ -2,6 +2,3 @@ flask
 scikit-learn
 joblib
 whisper
-pydub
-pyaudioop
-pyaudioop
