@@ -43,22 +43,13 @@ def pronunciation_feedback():
 
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     uid = str(uuid.uuid4())[:8]
-    raw_path = f"audio_{timestamp}_{uid}.input"
-    wav_path = f"audio_{timestamp}_{uid}.wav"
+    audio_path = f"temp_audio_{timestamp}_{uid}.{audio.filename.split('.')[-1]}"
 
     try:
-        audio.save(raw_path)
-        audio_segment = AudioSegment.from_file(raw_path)
-        audio_segment.export(wav_path, format="wav")
-    except Exception as e:
-        return jsonify({"error": f"Audio conversion failed: {str(e)}"}), 500
-    finally:
-        if os.path.exists(raw_path):
-            os.remove(raw_path)
-
-    try:
-        result = whisper_model.transcribe(wav_path)
+        audio.save(audio_path)
+        result = whisper_model.transcribe(audio_path)
         spoken_word = result['text'].strip().lower()
+
         simulated_phoneme = spoken_word
 
         prediction = pronunciation_model.predict([simulated_phoneme])[0]
@@ -82,8 +73,8 @@ def pronunciation_feedback():
     except Exception as e:
         return jsonify({"error": f"Processing failed: {str(e)}"}), 500
     finally:
-        if os.path.exists(wav_path):
-            os.remove(wav_path)
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
 
 # === IMPORTANT: Bind to $PORT and 0.0.0.0 for Render ===
 if __name__ == '__main__':
