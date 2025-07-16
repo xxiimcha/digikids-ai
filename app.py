@@ -1,63 +1,94 @@
 from flask import Flask, request, jsonify
+import whisper
 import joblib
+import os
+import uuid
+from datetime import datetime
+from werkzeug.utils import secure_filename
+from pydub import AudioSegment
+import pandas as pd
+from sklearn.pipeline import Pipeline
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
 
 app = Flask(__name__)
 
-# Load the trained intent classification model
-model = joblib.load("intent_model.pkl")
+# === Load Whisper model ===
+whisper_model = whisper.load_model("base")
 
-# Confidence threshold for accepting a prediction
-CONFIDENCE_THRESHOLD = 0.6
+# === Train pronunciation classifier from CSV ===
+def train_model_from_csv(csv_path: str):
+    df = pd.read_csv(csv_path)
+    X = df["input"]
+    y = df["label"]
+    
+    pipeline = Pipeline([
+        ('tfidf', TfidfVectorizer()),
+        ('clf', LogisticRegression(max_iter=200))
+    ])
+    pipeline.fit(X, y)
+    return pipeline
 
-# Mapping from intent labels to response messages
-intent_to_answer = {
-    "math_2_plus_2": "2 plus 2 is 4!",
-    "science_sky_blue": "The sky looks blue because of how sunlight scatters in the atmosphere.",
-    "animal_sound_dog": "A dog says woof woof!",
-    "animal_sound_cat": "A cat says meow meow!",
-    "bot_identity": "I'm your friendly fox assistant!",
-    "fun_fact": "Did you know that a group of flamingos is called a flamboyance?",
-}
+# Train the model once at app start
+pronunciation_model = train_model_from_csv("pronunciation_dataset.csv")
 
-@app.route("/predict_intent", methods=["POST"])
-def predict_intent():
-    data = request.get_json()
+@app.route('/api/pronunciation-feedback', methods=['POST'])
+def pronunciation_feedback():
+    if 'audio' not in request.files or 'expected' not in request.form:
+        return jsonify({"error": "Missing audio or expected field"}), 400
 
-    if not data or not data.get("text"):
-        return jsonify({
-            "intent": "unknown",
-            "answer": "I didn’t hear anything. Can you say that again?"
-        })
+    audio = request.files['audio']
+    expected_word = request.form['expected'].strip().lower()
 
-    user_input = data["text"].strip()
+    if audio.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    uid = str(uuid.uuid4())[:8]
+    raw_path = f"audio_{timestamp}_{uid}.input"
+    wav_path = f"audio_{timestamp}_{uid}.wav"
 
     try:
-        # Get prediction probabilities
-        probabilities = model.predict_proba([user_input])[0]
-        max_index = probabilities.argmax()
-        max_confidence = probabilities[max_index]
-        predicted_intent = model.classes_[max_index]
+        audio.save(raw_path)
+        audio_segment = AudioSegment.from_file(raw_path)
+        audio_segment.export(wav_path, format="wav")
+    except Exception as e:
+        return jsonify({"error": f"Audio conversion failed: {str(e)}"}), 500
+    finally:
+        if os.path.exists(raw_path):
+            os.remove(raw_path)
 
-        # Check if confidence is too low
-        if max_confidence < CONFIDENCE_THRESHOLD:
-            return jsonify({
-                "intent": "unknown",
-                "answer": "I don't understand. Can you try again?"
-            })
+    try:
+        result = whisper_model.transcribe(wav_path)
+        spoken_word = result['text'].strip().lower()
 
-        # Fetch corresponding answer
-        answer = intent_to_answer.get(predicted_intent, "I don't understand. Can you try again?")
+        # Instead of phonemizer, simulate phoneme with word itself or define a manual phoneme map
+        # Here we assume phoneme = spoken_word directly or map manually
+        simulated_phoneme = spoken_word  # Or use a lookup if available
+
+        prediction = pronunciation_model.predict([simulated_phoneme])[0]
+        proba = pronunciation_model.predict_proba([simulated_phoneme])[0].max()
+
+        feedback = {
+            "correct": "Great job! You said it correctly.",
+            "almost": "Almost there! Let's try again.",
+            "incorrect": "Let's try saying it again together!"
+        }.get(prediction, "Hmm, I’m not sure.")
+
         return jsonify({
-            "intent": predicted_intent,
-            "answer": answer
+            "spoken_word": spoken_word,
+            "expected_word": expected_word,
+            "simulated_phoneme": simulated_phoneme,
+            "prediction": prediction,
+            "confidence": round(float(proba), 2),
+            "feedback": feedback
         })
 
     except Exception as e:
-        return jsonify({
-            "intent": "error",
-            "answer": "Oops! Something went wrong. Please try again.",
-            "error": str(e)  # Optional: remove in production
-        }), 500
+        return jsonify({"error": f"Processing failed: {str(e)}"}), 500
+    finally:
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+if __name__ == '__main__':
+    app.run(debug=True)
