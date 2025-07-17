@@ -71,6 +71,32 @@ def pronunciation_feedback():
         if os.path.exists(audio_path):
             os.remove(audio_path)
 
+@app.route('/predict_intent', methods=['POST'])
+def predict_intent():
+    try:
+        data = request.get_json()
+        text = data.get('text', '').strip().lower()
+        if not text:
+            return jsonify({'error': 'No input text provided'}), 400
+
+        prediction = pronunciation_model.predict([text])[0]
+        proba = pronunciation_model.predict_proba([text])[0].max()
+
+        response = {
+            'input': text,
+            'prediction': prediction,
+            'confidence': round(float(proba), 2),
+            'answer': {
+                'correct': "Great job!",
+                'almost': "You're close!",
+                'incorrect': "Hmm, let’s try again.",
+            }.get(prediction, "Sorry, I don’t understand.")
+        }
+
+        return jsonify(response)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/ping', methods=['GET'])
 def ping():
     return jsonify({"status": "ok"}), 200
