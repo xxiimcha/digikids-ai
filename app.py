@@ -71,6 +71,11 @@ def pronunciation_feedback():
         if os.path.exists(audio_path):
             os.remove(audio_path)
 
+@app.route('/ping', methods=['GET'])
+def ping():
+    return jsonify({"status": "ok"}), 200
+
+
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
